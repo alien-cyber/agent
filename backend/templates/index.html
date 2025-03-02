@@ -20,10 +20,10 @@
     <form id="patientForm" action="/submit/" method="post" enctype="multipart/form-data">
         <label for="name">Patient Name:</label>
         <input type="text" id="name" name="name" required>
-
+    
         <label for="age">Age:</label>
         <input type="number" id="age" name="age" required>
-
+    
         <label>Gender:</label>
         <div class="options">
             <input type="radio" id="male" name="gender" value="Male" required>
@@ -31,18 +31,22 @@
             <input type="radio" id="female" name="gender" value="Female">
             <label for="female">Female</label>
         </div>
-
+    
         <label for="symptoms">Current Symptoms:</label>
         <textarea id="symptoms" name="symptoms" rows="3" required></textarea>
-
+    
         <label for="history">Past Medical History:</label>
         <textarea id="history" name="history" rows="3"></textarea>
-
+    
         <label for="file">Upload Health Report (PDF/Image):</label>
         <input type="file" id="file" name="file" accept=".pdf, .jpg, .png">
-
+    
+        <label for="photo">Upload Skin Photo (If infected):</label>
+        <input type="file" id="photo" name="photo" accept=".jpg, .png,. jpeg">
+    
         <button type="submit">Submit</button>
     </form>
+    
 
 </body>
 </html>

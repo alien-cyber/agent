@@ -4,11 +4,14 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from dotenv import load_dotenv
 import os
-from openai import OpenAI
+import io
+
 from pymongo import MongoClient
 from pdf2image import convert_from_bytes
+import torch
+from PIL import Image
+import torchvision.transforms as T
 
-import os
 from openai import OpenAI
 import easyocr
 
@@ -28,7 +31,9 @@ client = OpenAI(
     base_url="https://api.studio.nebius.ai/v1/",
     api_key=os.environ.get("NEBIUS_API"),
 )
-def get_completion(symptoms, history, file_info):
+def get_completion(symptoms, history, file_info, result):
+    if result:
+        symptoms += f"Skin condition: {result}. "
     if file_info:
         symptoms +=f"Medical report: {file_info}"
     prompt = f"""You are a doctor. A patient comes to you with the following symptoms: {symptoms}. 
@@ -46,7 +51,21 @@ def get_completion(symptoms, history, file_info):
 
 
 
+model = torch.load('./skin-model-pokemon.pt', map_location=torch.device('cpu'), weights_only=False)
+device = torch.device('cpu')
+model.to(device)
 
+
+
+classes = ['acanthosis-nigricans',
+                'acne',
+                'acne-scars',
+                'alopecia-areata',
+                'dry',
+                'melasma',
+                'oily',
+                'vitiligo',
+                'warts']
 
 app = FastAPI()
 
@@ -67,7 +86,9 @@ async def process_form(
     gender: str = Form(...),
     symptoms: str = Form(...),
     history: str = Form(...),
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
+    photo: UploadFile = File(None)
+
 ):
     data = {
         "name": name,
@@ -75,14 +96,20 @@ async def process_form(
         "gender": gender,
         "symptoms": symptoms,
         "history": history,
-        "file_name": file.filename if file else "No file uploaded"
+        "file_bytes": file.filename if file else "No file uploaded",
+        "photo": photo.filename if photo else "No photo uploaded"
+
     }
     
     # Process the file (if uploaded)
-    # if file:
-    #     file_path = f"uploads/{file.filename}"
-    #     with open(file_path, "wb") as f:
-    #         f.write(await file.read())
+    if file:
+        file_path = f"uploads/{file.filename}"
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+    if photo:
+        photo_path = f"uploads/{photo.filename}"
+        with open(photo_path, "wb") as f:
+            f.write(await photo.read())
    
     if file:
         content_type = file.content_type
@@ -106,10 +133,25 @@ async def process_form(
         else:
             file_info = None
     print(file_info)
+    if photo:
+  
+        image_bytes = await photo.read()
+        
+        # Convert to PIL image
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        # Get the transforms
+        tr = get_transforms()
+
+        # Process image without saving to disk
+        result = predict(model, img, tr, classes)
+    else: 
+        result = None
+    print(result,photo.filename)
 
     
     
-    output = get_completion(symptoms, history,file_info)
+    output = get_completion(symptoms, history,file_info, result)
     disease = firstindex(output, "disease:")
     home_treatment = firstindex(output, "Home_treatment:")
     to_avoid = firstindex(output, "TO_AVOID:")  
@@ -120,8 +162,10 @@ async def process_form(
     data["to_avoid"] = output[to_avoid+9:doctor_to_consult]
     data["doctor_to_consult"] = output[doctor_to_consult+18:]
 
-    result = collection.insert_one(data)
-    data["_id"] = str(result.inserted_id)
+
+#   THE BELOW IS MONGODB STORAGE CODE
+    # result = collection.insert_one(data)
+    # data["_id"] = str(result.inserted_id)
    
     
 
@@ -172,3 +216,16 @@ def firstindex(haystack: str, needle: str) -> int:
                     i += 1
         
         return -1
+
+
+def predict(model, img, tr, classes):
+    img_tensor = tr(img)
+    out = model(img_tensor.unsqueeze(0))
+    pred, idx = torch.max(out, 1)
+    return classes[idx]
+
+def get_transforms():
+    transform = []
+    transform.append(T.Resize((512, 512)))
+    transform.append(T.ToTensor())
+    return T.Compose(transform)
